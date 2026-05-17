@@ -3633,9 +3633,7 @@ int janus_ice_setup_local(janus_ice_handle *handle, gboolean offer, gboolean tri
 		"ice-tcp", janus_ice_tcp_enabled ? TRUE : FALSE,
 #endif
 		NULL);
-	janus_mutex_lock(&handle->mutex);
 	handle->agent_created = janus_get_monotonic_time();
-	janus_mutex_unlock(&handle->mutex);
 	handle->srtp_errors_count = 0;
 	handle->last_srtp_error = 0;
 	/* Any STUN server to use? */
