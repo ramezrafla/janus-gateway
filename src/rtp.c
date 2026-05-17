@@ -160,7 +160,7 @@ static int janus_rtp_header_extension_find(char *buf, int len, int id,
 		hlen += rtp->csrccount*4;
 	if(rtp->extension && (len > hlen + (int)sizeof(janus_rtp_header_extension))) {
 		if(len < hlen + (int)sizeof(janus_rtp_header_extension))
-			return NULL;
+			return -1;
 		janus_rtp_header_extension *ext = (janus_rtp_header_extension *)(buf+hlen);
 		int extlen = ntohs(ext->length)*4;
 		hlen += 4;
@@ -528,7 +528,7 @@ int janus_rtp_header_extension_replace_id(char *buf, int len, int id, int new_id
 		hlen += rtp->csrccount*4;
 	if(rtp->extension) {
 		if(len < hlen + (int)sizeof(janus_rtp_header_extension))
-			return NULL;
+			return -1;
 		janus_rtp_header_extension *ext = (janus_rtp_header_extension *)(buf+hlen);
 		int extlen = ntohs(ext->length)*4;
 		hlen += 4;
