@@ -1386,6 +1386,10 @@ janus_ice_handle *janus_ice_handle_create(void *core_session, const char *opaque
 	handle->queued_packets = g_async_queue_new();
 	janus_mutex_init(&handle->mutex);
 	janus_flags_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_ALERT);
+	if(g_atomic_int_get(&session->destroyed)) {
+		janus_refcount_decrease(&handle->ref);
+		return NULL;
+	}
 	janus_session_handles_insert(session, handle);
 	return handle;
 }
@@ -1519,8 +1523,7 @@ gint janus_ice_handle_destroy(void *core_session, janus_ice_handle *handle) {
 	janus_mutex_lock(&plugin_sessions_mutex);
 	gboolean found = g_hash_table_remove(plugin_sessions, handle->app_handle);
 	if(!found) {
-		janus_mutex_unlock(&plugin_sessions_mutex);
-		return JANUS_ERROR_HANDLE_NOT_FOUND;
+		JANUS_LOG(LOG_WARN, "[%"SCNu64"] Handle not found in plugin sessions map, but continuing cleanup anyway\n", handle->handle_id);
 	}
 	janus_mutex_unlock(&plugin_sessions_mutex);
 	janus_mutex_lock(&event_loops_mutex);
@@ -1573,11 +1576,15 @@ static void janus_ice_handle_free(const janus_refcount *handle_ref) {
 	janus_mutex_lock(&handle->mutex);
 	if(handle->queued_candidates != NULL) {
 		janus_ice_clear_queued_candidates(handle);
-		g_async_queue_unref(handle->queued_candidates);
+		GAsyncQueue *q = handle->queued_candidates;
+		handle->queued_candidates = NULL;
+		g_async_queue_unref(q);
 	}
 	if(handle->queued_packets != NULL) {
 		janus_ice_clear_queued_packets(handle);
-		g_async_queue_unref(handle->queued_packets);
+		GAsyncQueue *q = handle->queued_packets;
+		handle->queued_packets = NULL;
+		g_async_queue_unref(q);
 	}
 	if(static_event_loops == 0 && handle->mainloop != NULL) {
 		g_main_loop_unref(handle->mainloop);
@@ -3185,7 +3192,6 @@ static void janus_ice_cb_nice_recv(NiceAgent *agent, guint stream_id, guint comp
 							/* Should we retransmit this packet? */
 							if((p->last_retransmit > 0) && (now-p->last_retransmit < p->current_backoff)) {
 								JANUS_LOG(LOG_HUGE, "[%"SCNu64"]   >> >> Packet %u was retransmitted just %"SCNi64"us ago, skipping\n", handle->handle_id, seqnr, now-p->last_retransmit);
-								g_queue_pop_tail(queue);
 								continue;
 							}
 							in_rb = 1;
@@ -3240,7 +3246,6 @@ static void janus_ice_cb_nice_recv(NiceAgent *agent, guint stream_id, guint comp
 						if(rtcp_ctx != NULL && in_rb) {
 							g_atomic_int_inc(&rtcp_ctx->nack_count);
 						}
-						g_queue_pop_tail(queue);
 					}
 					medium->retransmit_recent_cnt += retransmits_cnt;
 					/* FIXME Remove the NACK compound packet, we've handled it */
@@ -3628,7 +3633,9 @@ int janus_ice_setup_local(janus_ice_handle *handle, gboolean offer, gboolean tri
 		"ice-tcp", janus_ice_tcp_enabled ? TRUE : FALSE,
 #endif
 		NULL);
+	janus_mutex_lock(&handle->mutex);
 	handle->agent_created = janus_get_monotonic_time();
+	janus_mutex_unlock(&handle->mutex);
 	handle->srtp_errors_count = 0;
 	handle->last_srtp_error = 0;
 	/* Any STUN server to use? */
@@ -4241,17 +4248,11 @@ static gboolean janus_ice_outgoing_transport_wide_cc_feedback(gpointer user_data
 			/* If we have more than 400 packets to acknowledge, let's send more than one message */
 			if(packets_len > 400) {
 				/* Split the queue into two */
-				GList *new_head = g_queue_peek_nth_link(packets, 400);
-				GList *new_tail = new_head->prev;
-				new_head->prev = NULL;
-				new_tail->next = NULL;
 				packets_to_process = g_queue_new();
-				packets_to_process->head = packets->head;
-				packets_to_process->tail = new_tail;
-				packets_to_process->length = 400;
-				packets->head = new_head;
-				/* packets->tail is unchanged */
-				packets->length = packets_len - 400;
+				for(guint i = 0; i < 400; i++) {
+					gpointer data = g_queue_pop_head(packets);
+					g_queue_push_tail(packets_to_process, data);
+				}
 			} else {
 				packets_to_process = packets;
 			}
@@ -5086,14 +5087,14 @@ static gboolean janus_ice_outgoing_traffic_handle(janus_ice_handle *handle, janu
 }
 
 static void janus_ice_queue_packet(janus_ice_handle *handle, janus_ice_queued_packet *pkt) {
-	/* TODO: There is a potential race condition where the "queued_packets"
-	 * could get released between the condition and pushing the packet. */
+	janus_mutex_lock(&handle->mutex);
 	if(handle->queued_packets != NULL) {
 		g_async_queue_push(handle->queued_packets, pkt);
 		g_main_context_wakeup(handle->mainctx);
 	} else {
 		janus_ice_free_queued_packet(pkt);
 	}
+	janus_mutex_unlock(&handle->mutex);
 }
 
 void janus_ice_relay_rtp(janus_ice_handle *handle, janus_plugin_rtp *packet) {

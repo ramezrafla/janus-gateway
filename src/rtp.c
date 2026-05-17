@@ -47,6 +47,8 @@ char *janus_rtp_payload(char *buf, int len, int *plen) {
 		hlen += rtp->csrccount*4;
 
 	if(rtp->extension) {
+		if(len < hlen + (int)sizeof(janus_rtp_header_extension))
+			return NULL;
 		janus_rtp_header_extension *ext = (janus_rtp_header_extension *)(buf+hlen);
 		int extlen = ntohs(ext->length)*4;
 		hlen += 4;
@@ -61,7 +63,7 @@ char *janus_rtp_payload(char *buf, int len, int *plen) {
 	return buf+hlen;
 }
 
-int janus_rtp_header_extension_get_id(const char *sdp, const char *extension) {
+int janus_rtp_header_extension_get_id(char *sdp, const char *extension) {
 	if(!sdp || !extension)
 		return -1;
 	char extmap[100];
@@ -90,7 +92,7 @@ int janus_rtp_header_extension_get_id(const char *sdp, const char *extension) {
 	return -2;
 }
 
-const char *janus_rtp_header_extension_get_from_id(const char *sdp, int id) {
+const char *janus_rtp_header_extension_get_from_id(char *sdp, int id) {
 	if(!sdp || id < 0)
 		return NULL;
 	/* Look for the mapping */
@@ -157,6 +159,8 @@ static int janus_rtp_header_extension_find(char *buf, int len, int id,
 	if(rtp->csrccount)	/* Skip CSRC if needed */
 		hlen += rtp->csrccount*4;
 	if(rtp->extension && (len > hlen + (int)sizeof(janus_rtp_header_extension))) {
+		if(len < hlen + (int)sizeof(janus_rtp_header_extension))
+			return NULL;
 		janus_rtp_header_extension *ext = (janus_rtp_header_extension *)(buf+hlen);
 		int extlen = ntohs(ext->length)*4;
 		hlen += 4;
@@ -523,6 +527,8 @@ int janus_rtp_header_extension_replace_id(char *buf, int len, int id, int new_id
 	if(rtp->csrccount)	/* Skip CSRC if needed */
 		hlen += rtp->csrccount*4;
 	if(rtp->extension) {
+		if(len < hlen + (int)sizeof(janus_rtp_header_extension))
+			return NULL;
 		janus_rtp_header_extension *ext = (janus_rtp_header_extension *)(buf+hlen);
 		int extlen = ntohs(ext->length)*4;
 		hlen += 4;

@@ -2633,6 +2633,8 @@ static janus_videoroom_rtp_relay_packet exit_packet;
 static void janus_videoroom_rtp_relay_packet_free(janus_videoroom_rtp_relay_packet *pkt) {
 	if(pkt == NULL || pkt == &exit_packet)
 		return;
+	if(pkt->source != NULL)
+		janus_refcount_decrease(&pkt->source->ref);
 	g_free(pkt->data);
 	g_free(pkt);
 }
@@ -12205,7 +12207,7 @@ static void *janus_videoroom_handler(void *data) {
 						janus_videoroom_subscriber_stream *stream = NULL;
 						GList *temp2 = subscriber->streams;
 						while(temp2) {
-							stream = (janus_videoroom_subscriber_stream *)temp->data;
+							stream = (janus_videoroom_subscriber_stream *)temp2->data;
 							if(stream->type == ps->type && !g_list_find(touched_already, stream) &&
 									((stream->type == JANUS_VIDEOROOM_MEDIA_AUDIO && stream->acodec == ps->acodec) ||
 									(stream->type == JANUS_VIDEOROOM_MEDIA_VIDEO && stream->vcodec == ps->vcodec))) {
@@ -12430,9 +12432,9 @@ static void *janus_videoroom_handler(void *data) {
 								janus_videoroom_helper *ht = (janus_videoroom_helper *)l->data;
 								janus_mutex_lock(&ht->mutex);
 								GList *list = g_hash_table_lookup(ht->subscribers, ps);
-								if(g_list_find(list, s) != NULL) {
+								if(g_list_find(list, stream) != NULL) {
 									ht->num_subscribers--;
-									list = g_list_remove_all(list, s);
+									list = g_list_remove_all(list, stream);
 									g_hash_table_insert(ht->subscribers, ps, list);
 									JANUS_LOG(LOG_VERB, "Removing subscriber stream from helper thread #%d (%d subscribers)\n",
 										ht->id, ht->num_subscribers);
@@ -12815,8 +12817,8 @@ static void *janus_videoroom_handler(void *data) {
 				const char *audiocodec = NULL, *videocodec = NULL;
 				char *vp9_profile = NULL, *h264_profile = NULL;
 				GList *temp = offer->m_lines;
-				janus_mutex_lock(&participant->rtp_forwarders_mutex);
 				janus_mutex_lock(&participant->streams_mutex);
+				janus_mutex_lock(&participant->rtp_forwarders_mutex);
 				while(temp) {
 					/* Which media are available? */
 					janus_sdp_mline *m = (janus_sdp_mline *)temp->data;
@@ -13236,8 +13238,8 @@ static void *janus_videoroom_handler(void *data) {
 					}
 					json_array_append_new(media, info);
 				}
-				janus_mutex_unlock(&participant->streams_mutex);
 				janus_mutex_unlock(&participant->rtp_forwarders_mutex);
+				janus_mutex_unlock(&participant->streams_mutex);
 				janus_sdp_destroy(offer);
 				/* Replace the session name */
 				g_free(answer->s_name);
@@ -14218,6 +14220,7 @@ static void janus_videoroom_helper_rtpdata_packet(gpointer data, gpointer user_d
 	/* Clone the packet and queue it for delivery on the helper thread */
 	janus_videoroom_rtp_relay_packet *copy = g_malloc0(sizeof(janus_videoroom_rtp_relay_packet));
 	copy->source = packet->source;
+	janus_refcount_increase(&packet->source->ref);
 	copy->data = g_malloc(packet->length);
 	memcpy(copy->data, packet->data, packet->length);
 	copy->length = packet->length;

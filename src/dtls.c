@@ -724,8 +724,8 @@ void janus_dtls_srtp_incoming_msg(janus_dtls_srtp *dtls, char *buf, uint16_t len
 		JANUS_LOG(LOG_HUGE, "[%"SCNu64"]     Written %d bytes on the read BIO...\n", handle->handle_id, written);
 	}
 	/* Try to read data */
-	char data[1500];	/* FIXME */
-	int read = SSL_read(dtls->ssl, &data, 1500);
+	char data[16384];
+	int read = SSL_read(dtls->ssl, data, sizeof(data));
 	JANUS_LOG(LOG_HUGE, "[%"SCNu64"]     ... and read %d of them from SSL...\n", handle->handle_id, read);
 	if(read < 0) {
 		unsigned long err = SSL_get_error(dtls->ssl, read);
@@ -1032,16 +1032,13 @@ int janus_dtls_verify_callback(int preverify_ok, X509_STORE_CTX *ctx) {
 	int err = X509_STORE_CTX_get_error(ctx);
 	if(err == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT || err == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) {
 		/* Self signed certificate: by default we always accept it */
-		if(!dtls_selfsigned_certs_ok) {
-			/* ... unless we're enforcing validation */
-			return 0;
-		}
+		return dtls_selfsigned_certs_ok ? 1 : 0;
 	}
 	/* We always reject expired certificates, even when self-signed */
 	if(err == X509_V_ERR_CERT_HAS_EXPIRED)
 		return 0;
-	/* Return a success if we're ok with self-signed, the result of the validation otherwise */
-	return dtls_selfsigned_certs_ok ? 1 : (err == X509_V_OK);
+	/* Return the result of the validation */
+	return (err == X509_V_OK);
 }
 
 #ifdef HAVE_SCTP

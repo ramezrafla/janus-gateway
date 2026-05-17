@@ -728,9 +728,12 @@ static gboolean janus_check_sessions(gpointer user_data) {
 					if(janus_events_is_enabled())
 						janus_events_notify_handlers(JANUS_EVENT_TYPE_SESSION, JANUS_EVENT_SUBTYPE_NONE,
 							session->session_id, "timeout", NULL);
+					janus_refcount_increase(&session->ref);
 					g_hash_table_iter_remove(&iter);
 					g_atomic_int_dec_and_test(&sessions_num);
+					janus_refcount_decrease(&session->ref);
 					janus_session_destroy(session);
+					janus_refcount_decrease(&session->ref);
 				}
 			}
 		}
@@ -844,8 +847,6 @@ gint janus_session_destroy(janus_session *session) {
 	if(!g_atomic_int_compare_and_exchange(&session->destroyed, 0, 1))
 		return 0;
 	janus_session_handles_clear(session);
-	/* The session will actually be destroyed when the counter gets to 0 */
-	janus_refcount_decrease(&session->ref);
 
 	return 0;
 }
@@ -1205,6 +1206,11 @@ int janus_process_incoming_request(janus_request *request) {
 		ret = janus_process_error(request, session_id, transaction_text, JANUS_ERROR_SESSION_NOT_FOUND, "No such session %"SCNu64"", session_id);
 		goto jsondone;
 	}
+	if(g_atomic_int_get(&session->destroyed)) {
+		janus_refcount_decrease(&session->ref);
+		ret = janus_process_error(request, session_id, transaction_text, JANUS_ERROR_SESSION_NOT_FOUND, "No such session %"SCNu64"", session_id);
+		goto jsondone;
+	}
 	/* Update the last activity timer */
 	session->last_activity = janus_get_monotonic_time();
 	handle = NULL;
@@ -1293,8 +1299,10 @@ int janus_process_incoming_request(janus_request *request) {
 			goto jsondone;
 		}
 		janus_mutex_lock(&sessions_mutex);
-		if(g_hash_table_remove(sessions, &session->session_id))
+		if(g_hash_table_remove(sessions, &session->session_id)) {
 			g_atomic_int_dec_and_test(&sessions_num);
+			janus_refcount_decrease(&session->ref);
+		}
 		janus_mutex_unlock(&sessions_mutex);
 		/* Notify the source that the session has been destroyed */
 		janus_request *source = janus_session_get_request(session);
@@ -2843,6 +2851,11 @@ int janus_process_incoming_admin_request(janus_request *request) {
 		ret = janus_process_error(request, session_id, transaction_text, JANUS_ERROR_SESSION_NOT_FOUND, "No such session %"SCNu64"", session_id);
 		goto jsondone;
 	}
+	if(g_atomic_int_get(&session->destroyed)) {
+		janus_refcount_decrease(&session->ref);
+		ret = janus_process_error(request, session_id, transaction_text, JANUS_ERROR_SESSION_NOT_FOUND, "No such session %"SCNu64"", session_id);
+		goto jsondone;
+	}
 	handle = NULL;
 	if(handle_id > 0) {
 		handle = janus_session_handles_find(session, handle_id);
@@ -2858,8 +2871,10 @@ int janus_process_incoming_admin_request(janus_request *request) {
 		/* Session-related */
 		if(!strcasecmp(message_text, "destroy_session")) {
 			janus_mutex_lock(&sessions_mutex);
-			if(g_hash_table_remove(sessions, &session->session_id))
+			if(g_hash_table_remove(sessions, &session->session_id)) {
 				g_atomic_int_dec_and_test(&sessions_num);
+				janus_refcount_decrease(&session->ref);
+			}
 			janus_mutex_unlock(&sessions_mutex);
 			/* Notify the source that the session has been destroyed */
 			janus_request *source = janus_session_get_request(session);
@@ -3502,9 +3517,12 @@ void janus_transport_gone(janus_transport *plugin, janus_transport_session *tran
 						janus_events_notify_handlers(JANUS_EVENT_TYPE_SESSION, JANUS_EVENT_SUBTYPE_NONE,
 							session->session_id, "destroyed", NULL);
 					/* Mark the session as destroyed */
+					janus_refcount_increase(&session->ref);
 					janus_session_destroy(session);
 					g_atomic_int_dec_and_test(&sessions_num);
 					g_hash_table_iter_remove(&iter);
+					janus_refcount_decrease(&session->ref);
+					janus_refcount_decrease(&session->ref);
 				} else {
 					/* Set flag for transport_gone. The Janus sessions watchdog will clean this up if not reclaimed */
 					g_atomic_int_set(&session->transport_gone, 1);

@@ -392,10 +392,12 @@ void janus_sctp_data_from_dtls(janus_sctp_association *sctp, char *buf, int len)
 int janus_sctp_data_to_dtls(void *instance, void *buffer, size_t length, uint8_t tos, uint8_t set_df) {
 	janus_mutex_lock(&sctp_mutex);
 	janus_sctp_association *sctp = (janus_sctp_association *)g_hash_table_lookup(sctp_ids, instance);
-	janus_mutex_unlock(&sctp_mutex);
-	if(sctp == NULL || sctp->handle == NULL)
+	if(sctp == NULL || sctp->handle == NULL) {
+		janus_mutex_unlock(&sctp_mutex);
 		return -1;
+	}
 	JANUS_LOG(LOG_HUGE, "[%"SCNu64"] Data from SCTP to DTLS stack: %zu bytes\n", sctp->handle_id, length);
+	janus_mutex_unlock(&sctp_mutex);
 #ifdef DEBUG_SCTP
 	if(sctp->debug_dump != NULL) {
 		/* Dump outgoing message */
@@ -414,8 +416,8 @@ int janus_sctp_data_to_dtls(void *instance, void *buffer, size_t length, uint8_t
 static int janus_sctp_incoming_data(struct socket *sock, union sctp_sockstore addr, void *data, size_t datalen, struct sctp_rcvinfo rcv, int flags, void *ulp_info) {
 	janus_mutex_lock(&sctp_mutex);
 	janus_sctp_association *sctp = (janus_sctp_association *)g_hash_table_lookup(sctp_ids, ulp_info);
-	janus_mutex_unlock(&sctp_mutex);
 	if(sctp == NULL || sctp->dtls == NULL) {
+		janus_mutex_unlock(&sctp_mutex);
 		free(data);
 		return 0;
 	}
@@ -427,6 +429,7 @@ static int janus_sctp_incoming_data(struct socket *sock, union sctp_sockstore ad
 		}
 		free(data);
 	}
+	janus_mutex_unlock(&sctp_mutex);
 	return 1;
 }
 
@@ -839,7 +842,8 @@ void janus_sctp_reset_outgoing_stream(janus_sctp_association *sctp, uint16_t str
 			return;
 		}
 	}
-	sctp->stream_buffer[sctp->stream_buffer_counter++] = stream;
+	if(sctp->stream_buffer_counter < NUMBER_OF_STREAMS)
+		sctp->stream_buffer[sctp->stream_buffer_counter++] = stream;
 	return;
 }
 
@@ -963,7 +967,7 @@ void janus_sctp_handle_open_request_message(janus_sctp_association *sctp, janus_
 			/* FIXME Should we handle some error, here? */
 			break;
 	}
-	pr_value = ntohs(req->reliability_params);
+	pr_value = ntohl(req->reliability_params);
 	channel->state = DATA_CHANNEL_CONNECTING;
 	channel->unordered = unordered;
 	channel->pr_policy = pr_policy;

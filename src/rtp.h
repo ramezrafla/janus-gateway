@@ -165,14 +165,14 @@ char *janus_rtp_payload(char *buf, int len, int *plen);
  * @param sdp The SDP to parse
  * @param extension The extension namespace to look for
  * @returns The extension id, if found, -1 otherwise */
-int janus_rtp_header_extension_get_id(const char *sdp, const char *extension);
+int janus_rtp_header_extension_get_id(char *sdp, const char *extension);
 
 /*! \brief Ugly and dirty helper to quickly get the RTP extension namespace associated with an id (extmap) in an SDP
  * @note This only looks for the extensions we know about, those defined in rtp.h
  * @param sdp The SDP to parse
  * @param id The extension id to look for
  * @returns The extension namespace, if found, NULL otherwise */
-const char *janus_rtp_header_extension_get_from_id(const char *sdp, int id);
+const char *janus_rtp_header_extension_get_from_id(char *sdp, int id);
 
 /*! \brief Helper to parse a ssrc-audio-level RTP extension (https://tools.ietf.org/html/rfc6464)
  * @note Browsers apparently always set the VAD to 1, so it's unreliable and should be ignored:
