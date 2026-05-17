@@ -1388,6 +1388,7 @@ janus_ice_handle *janus_ice_handle_create(void *core_session, const char *opaque
 	janus_flags_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_ALERT);
 	if(g_atomic_int_get(&session->destroyed)) {
 		janus_refcount_decrease(&handle->ref);
+		janus_refcount_decrease(&session->ref);
 		return NULL;
 	}
 	janus_session_handles_insert(session, handle);

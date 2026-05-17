@@ -1207,7 +1207,6 @@ int janus_process_incoming_request(janus_request *request) {
 		goto jsondone;
 	}
 	if(g_atomic_int_get(&session->destroyed)) {
-		janus_refcount_decrease(&session->ref);
 		ret = janus_process_error(request, session_id, transaction_text, JANUS_ERROR_SESSION_NOT_FOUND, "No such session %"SCNu64"", session_id);
 		goto jsondone;
 	}
@@ -2852,7 +2851,6 @@ int janus_process_incoming_admin_request(janus_request *request) {
 		goto jsondone;
 	}
 	if(g_atomic_int_get(&session->destroyed)) {
-		janus_refcount_decrease(&session->ref);
 		ret = janus_process_error(request, session_id, transaction_text, JANUS_ERROR_SESSION_NOT_FOUND, "No such session %"SCNu64"", session_id);
 		goto jsondone;
 	}
